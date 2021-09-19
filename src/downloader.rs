@@ -12,9 +12,11 @@ pub async fn download(config: &Config) -> Result<()> {
 
 mod downloader {
     use crate::config::{CafeConfig, Config};
+    use crate::error::DownloaderError;
 
     use anyhow::Result;
     use indicatif::{ProgressBar, ProgressStyle};
+    use lazy_static::lazy_static;
     use serde::Deserialize;
     use std::fs::{self, File};
     use std::io::prelude::*;
@@ -33,20 +35,30 @@ mod downloader {
 
     #[derive(Deserialize, Debug)]
     struct CafeApiResponse {
-        addfiles: CafeAddFiles,
+        addfiles: Option<CafeAddFiles>,
         #[serde(rename = "imageList")]
-        image_list: Vec<String>,
+        image_list: Option<Vec<String>>,
         #[serde(rename = "plainTextOfName")]
-        name: String,
+        name: Option<String>,
         #[serde(rename = "regDttm")]
-        date: String,
+        date: Option<String>,
         #[serde(rename = "subcontent")]
-        content: String,
+        content: Option<String>,
+        #[serde(rename = "exceptionCode")]
+        exception: Option<String>,
     }
 
     #[derive(Deserialize, Debug)]
     struct CafeAddFiles {
         addfile: Vec<CafeFile>,
+    }
+
+    impl CafeAddFiles {
+        fn new() -> Self {
+            Self {
+                addfile: Vec::new(),
+            }
+        }
     }
 
     #[derive(Deserialize, Debug)]
@@ -94,6 +106,7 @@ mod downloader {
             cafe_board: &str,
             cafe: &CafeConfig,
         ) -> Result<()> {
+            // Generate download path
             let download_path = if let Some(p) = &cafe.download_path {
                 Path::new(p)
             } else {
@@ -104,34 +117,70 @@ mod downloader {
 
             fs::create_dir_all(&download_path)?;
 
+            // Get first ID to start downloading
             let first_id = Downloader::get_first_id(&download_path);
-            let mut missing_id_cnt = 0;
-            for id in first_id.. {
-                let api_url = format!("http://api.m.cafe.daum.net/mcafe/api/v1/hybrid/{}/{}/{}?ref=&isSimple=false&installedVersion=3.15.1", &cafe_name, &cafe_board, id);
-                let resp = self.client_auth.get(api_url).send().await?;
-                let resp = match resp.json::<CafeApiResponse>().await {
-                    Ok(j) => j,
-                    Err(_) => {
-                        missing_id_cnt += 1;
-                        if missing_id_cnt >= 5 {
-                            break;
-                        }
-                        continue;
-                    }
-                };
 
+            // There may be holes in the ID sequence, this is the number of consecutive missing IDs
+            // we've seen
+            let mut missing_id_cnt = 0;
+
+            // Download newer posts
+            for id in first_id.. {
+                // Query Daum API
+                let api_url = format!("http://api.m.cafe.daum.net/mcafe/api/v1/hybrid/{}/{}/{}?ref=&isSimple=false&installedVersion=3.15.1", &cafe_name, &cafe_board, id);
+                let resp = self
+                    .client_auth
+                    .get(api_url)
+                    .send()
+                    .await?
+                    .json::<CafeApiResponse>()
+                    .await?;
+
+                // Check API response
+                if let Some(exception) = &resp.exception {
+                    match exception.as_ref() {
+                        "MCAFE_NOT_AUTHENTICATED" => {
+                            return Err(DownloaderError::NotAuthenticatedException)?
+                        }
+                        "MCAFE_BBS_BULLETIN_READ_DELALREADY" => {
+                            // Missing ID, likely a deleted post or we've reached the last post,
+                            // try a few more before giving up
+                            missing_id_cnt += 1;
+                            if missing_id_cnt >= 5 {
+                                break;
+                            }
+                            continue;
+                        }
+                        err => return Err(DownloaderError::APIException(err.into()))?,
+                    }
+                }
+
+                // Generate prefix
+                let date = resp
+                    .date
+                    .as_ref()
+                    .ok_or(DownloaderError::APIDateMissing)?
+                    .as_str();
+                let name = resp
+                    .name
+                    .as_ref()
+                    .ok_or(DownloaderError::APINameMissing)?
+                    .as_str();
                 let prefix = sanitize_filename::sanitize(format!(
                     "{}_{}_{}_{:04}_{}",
-                    &resp.date[..8],
+                    &date[..8],
                     cafe_name,
                     cafe_board,
                     id,
-                    Downloader::truncate_str_to_length(&resp.name, 100),
+                    Downloader::truncate_str_to_length(name, 100),
                 ));
 
+                // Download post
                 let post_download_path = download_path.join(&prefix);
                 self.download_post(&resp, &post_download_path, &prefix)
                     .await?;
+
+                // Finished downloading posts, reset missing id count
                 missing_id_cnt = 0;
             }
 
@@ -191,8 +240,17 @@ mod downloader {
 
             println!("Downloading {}", &prefix.as_ref().to_string_lossy());
 
+            lazy_static! {
+                static ref EMPTY_ADDFILES: CafeAddFiles = CafeAddFiles::new();
+            }
+
+            let addfiles = match &post.addfiles {
+                Some(a) => a,
+                None => &EMPTY_ADDFILES,
+            };
+
             // Progress bar
-            let pb = ProgressBar::new(post.addfiles.addfile.len() as u64);
+            let pb = ProgressBar::new(addfiles.addfile.len() as u64);
             let sty = ProgressStyle::default_bar()
                 .template("[{wide_bar}] {pos:>3}/{len:3}")
                 .progress_chars("=> ");
@@ -206,11 +264,13 @@ mod downloader {
 
             // Download all images
             let mut attach_idx: usize = 0;
-            futures::stream::iter(post.addfiles.addfile.iter().map(|image| {
-                let real_idx = post
-                    .image_list
-                    .iter()
-                    .position(|u| get_url_basename(u) == get_url_basename(image.downurl.as_str()));
+            futures::stream::iter(addfiles.addfile.iter().map(|image| {
+                let real_idx = match &post.image_list {
+                    Some(image_list) => image_list.iter().position(|u| {
+                        get_url_basename(u) == get_url_basename(image.downurl.as_str())
+                    }),
+                    None => None,
+                };
                 let filename = if let Some(idx) = real_idx {
                     format!(
                         "{}_img{:03}.{}",
@@ -221,7 +281,7 @@ mod downloader {
                 } else {
                     attach_idx += 1;
                     format!(
-                        "{}_attachimg{:03}.{}",
+                        "{}_attach{:03}.{}",
                         prefix.as_ref().to_string_lossy(),
                         attach_idx,
                         &image.filetype
@@ -235,12 +295,12 @@ mod downloader {
             .await;
 
             // Write content to text file
-            {
+            if let Some(content) = &post.content {
                 let mut file = File::create(
                     dir.path()
                         .join(format!("{}.txt", prefix.as_ref().to_string_lossy())),
                 )?;
-                file.write_all(post.content.as_bytes())?;
+                file.write_all(content.as_bytes())?;
             }
 
             // Move temp directory to final location

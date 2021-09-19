@@ -6,6 +6,7 @@ use std::process;
 mod config;
 mod downloader;
 mod cookies;
+mod error;
 
 #[tokio::main]
 async fn main() {

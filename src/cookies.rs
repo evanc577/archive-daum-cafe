@@ -1,5 +1,4 @@
 use anyhow::Result;
-use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
@@ -21,8 +20,8 @@ pub fn read_cookies(cookies_file: &str) -> Result<String> {
             let value = c.name("value")?.as_str();
             Some(format!("{}={}", name, value))
         })
-        .intersperse("; ".to_owned())
-        .collect();
+        .collect::<Vec<_>>()
+        .join("; ");
 
     Ok(cookie)
 }
