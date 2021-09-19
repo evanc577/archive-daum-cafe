@@ -34,6 +34,8 @@ mod downloader {
     #[derive(Deserialize, Debug)]
     struct CafeApiResponse {
         addfiles: CafeAddFiles,
+        #[serde(rename = "imageList")]
+        image_list: Vec<String>,
         #[serde(rename = "plainTextOfName")]
         name: String,
         #[serde(rename = "regDttm")]
@@ -63,7 +65,11 @@ mod downloader {
                 .build()
                 .unwrap();
             let client = reqwest::Client::new();
-            Downloader { client_auth, client, config }
+            Downloader {
+                client_auth,
+                client,
+                config,
+            }
         }
 
         async fn download_all(&self) -> Result<()> {
@@ -111,7 +117,7 @@ mod downloader {
                             break;
                         }
                         continue;
-                    },
+                    }
                 };
 
                 let prefix = sanitize_filename::sanitize(format!(
@@ -124,7 +130,8 @@ mod downloader {
                 ));
 
                 let post_download_path = download_path.join(&prefix);
-                self.download_post(&resp, &post_download_path, &prefix).await?;
+                self.download_post(&resp, &post_download_path, &prefix)
+                    .await?;
                 missing_id_cnt = 0;
             }
 
@@ -150,7 +157,8 @@ mod downloader {
                             .ok()
                     })
                     .max()
-                    .unwrap_or(1) + 1;
+                    .unwrap_or(1)
+                    + 1;
             }
 
             1
@@ -172,9 +180,14 @@ mod downloader {
             output
         }
 
-        async fn download_post(&self, post: &CafeApiResponse, path: impl AsRef<Path>, prefix: impl AsRef<Path>) -> Result<()> {
-            use tempfile::tempdir;
+        async fn download_post(
+            &self,
+            post: &'a CafeApiResponse,
+            path: impl AsRef<Path>,
+            prefix: impl AsRef<Path>,
+        ) -> Result<()> {
             use futures::stream::StreamExt;
+            use tempfile::tempdir;
 
             println!("Downloading {}", &prefix.as_ref().to_string_lossy());
 
@@ -188,32 +201,70 @@ mod downloader {
             // Create temp directory
             let dir = tempdir()?;
 
+            let get_url_basename =
+                |u: &'a str| -> &'a str { u.split('/').into_iter().rev().next().unwrap() };
+
             // Download all images
-            futures::stream::iter(post.addfiles.addfile.iter().enumerate().map(|(i, image)| {
-                let filename = format!("{}_img{:03}.{}", prefix.as_ref().to_string_lossy(), i + 1, &image.filetype);
+            let mut attach_idx: usize = 0;
+            futures::stream::iter(post.addfiles.addfile.iter().map(|image| {
+                let real_idx = post
+                    .image_list
+                    .iter()
+                    .position(|u| get_url_basename(u) == get_url_basename(image.downurl.as_str()));
+                let filename = if let Some(idx) = real_idx {
+                    format!(
+                        "{}_img{:03}.{}",
+                        prefix.as_ref().to_string_lossy(),
+                        idx + 1,
+                        &image.filetype
+                    )
+                } else {
+                    attach_idx += 1;
+                    format!(
+                        "{}_attachimg{:03}.{}",
+                        prefix.as_ref().to_string_lossy(),
+                        attach_idx,
+                        &image.filetype
+                    )
+                };
                 let download_path = dir.path().join(filename);
                 self.download_image(image.downurl.as_str(), download_path, &pb)
             }))
             .buffer_unordered(self.config.max_connections)
-                .collect::<Vec<_>>()
-                .await;
+            .collect::<Vec<_>>()
+            .await;
 
             // Write content to text file
             {
-                let mut file = File::create(dir.path().join(format!("{}.txt", prefix.as_ref().to_string_lossy())))?;
+                let mut file = File::create(
+                    dir.path()
+                        .join(format!("{}.txt", prefix.as_ref().to_string_lossy())),
+                )?;
                 file.write_all(post.content.as_bytes())?;
             }
 
             // Move temp directory to final location
             let options = fs_extra::dir::CopyOptions::new();
             fs_extra::dir::copy(&dir.path(), &path.as_ref().parent().unwrap(), &options).unwrap();
-            fs::rename(path.as_ref().parent().unwrap().join(dir.path().file_name().unwrap()), &path).unwrap();
+            fs::rename(
+                path.as_ref()
+                    .parent()
+                    .unwrap()
+                    .join(dir.path().file_name().unwrap()),
+                &path,
+            )
+            .unwrap();
 
             pb.finish_and_clear();
             Ok(())
         }
 
-        async fn download_image(&self, url: &str, path: impl AsRef<Path>, pb: &ProgressBar) -> Result<()> {
+        async fn download_image(
+            &self,
+            url: &str,
+            path: impl AsRef<Path>,
+            pb: &ProgressBar,
+        ) -> Result<()> {
             let body = self.client.get(url).send().await?.bytes().await?;
             let mut buffer = File::create(path)?;
             buffer.write_all(&body)?;
