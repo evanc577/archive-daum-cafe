@@ -206,7 +206,7 @@ mod downloader {
                             .ok()
                     })
                     .max()
-                    .unwrap_or(1)
+                    .unwrap_or(0)
                     + 1;
             }
 
