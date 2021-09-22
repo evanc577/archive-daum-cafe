@@ -34,6 +34,19 @@ mod downloader {
     }
 
     #[derive(Deserialize, Debug)]
+    struct CafeBoardArticles {
+        #[serde(rename = "article")]
+        articles: Vec<CafeArticle>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    struct CafeArticle {
+        dataid: usize,
+        #[serde(rename = "fldid")]
+        board: String,
+    }
+
+    #[derive(Deserialize, Debug)]
     struct CafeApiResponse {
         addfiles: Option<CafeAddFiles>,
         #[serde(rename = "imageList")]
@@ -121,13 +134,10 @@ mod downloader {
 
             // Get first ID to start downloading
             let first_id = Downloader::get_first_id(&download_path);
-
-            // There may be holes in the ID sequence, this is the number of consecutive missing IDs
-            // we've seen
-            let mut missing_id_cnt = 0;
+            let latest_id = self.get_latest_id(cafe_name, cafe_board).await?;
 
             // Download newer posts
-            for id in first_id.. {
+            for id in first_id..=latest_id {
                 // Query Daum API
                 let api_url = format!("http://api.m.cafe.daum.net/mcafe/api/v1/hybrid/{}/{}/{}?ref=&isSimple=false&installedVersion=3.15.1", &cafe_name, &cafe_board, id);
                 let resp = self
@@ -144,15 +154,7 @@ mod downloader {
                         "MCAFE_NOT_AUTHENTICATED" => {
                             return Err(DownloaderError::NotAuthenticatedException)?
                         }
-                        "MCAFE_BBS_BULLETIN_READ_DELALREADY" => {
-                            // Missing ID, likely a deleted post or we've reached the last post,
-                            // try a few more before giving up
-                            missing_id_cnt += 1;
-                            if missing_id_cnt >= 5 {
-                                break;
-                            }
-                            continue;
-                        }
+                        "MCAFE_BBS_BULLETIN_READ_DELALREADY" => continue,
                         err => return Err(DownloaderError::APIException(err.into()))?,
                     }
                 }
@@ -181,9 +183,6 @@ mod downloader {
                 let post_download_path = download_path.join(&prefix);
                 self.download_post(&resp, &post_download_path, &prefix)
                     .await?;
-
-                // Finished downloading posts, reset missing id count
-                missing_id_cnt = 0;
             }
 
             Ok(())
@@ -213,6 +212,28 @@ mod downloader {
             }
 
             1
+        }
+
+        async fn get_latest_id(&self, cafe_name: &str, board: &str) -> Result<usize> {
+            let latest_id = self.client
+                .get(format!(
+                    "https://api.m.cafe.daum.net/mcafe/api/v2/articles/{}/{}",
+                    cafe_name, board
+                ))
+                .send()
+                .await?
+                .json::<CafeBoardArticles>()
+                .await?
+                .articles
+                .iter()
+                .filter_map(|a| match a.board == board {
+                    true => Some(a.dataid),
+                    false => None,
+                })
+                .max()
+                .ok_or(DownloaderError::APILatestArticleException)?;
+
+            Ok(latest_id)
         }
 
         fn truncate_str_to_length(input: &str, max_length: usize) -> String {

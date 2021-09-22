@@ -6,6 +6,7 @@ pub enum DownloaderError {
     NotAuthenticatedException,
     AuthenticationError,
     APIException(String),
+    APILatestArticleException,
     APINameMissing,
     APIDateMissing,
 }
@@ -16,6 +17,7 @@ impl fmt::Display for DownloaderError {
             Self::NotAuthenticatedException => write!(f, "Not authorized, try updating cookies file"),
             Self::AuthenticationError => write!(f, "Authentication error"),
             Self::APIException(s) => write!(f, "Daum API Error: {}", s),
+            Self::APILatestArticleException => write!(f, "Could not get latest post"),
             Self::APINameMissing => write!(f, "Missing field 'plainTextOfName'"),
             Self::APIDateMissing => write!(f, "Missing field 'regDttm'"),
         }
