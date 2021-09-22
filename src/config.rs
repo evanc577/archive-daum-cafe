@@ -3,6 +3,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 
+static CONFIG_FILE: &str = "config.toml";
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     pub cookies_file: String,
@@ -22,10 +24,10 @@ fn default_num_processes() -> usize {
 }
 
 pub fn read_config() -> Result<Config> {
-    let conf_contents = fs::read_to_string("config.toml")
-        .context("Error reading config.toml")?;
+    let conf_contents = fs::read_to_string(CONFIG_FILE)
+        .context(format!("Error reading {}", CONFIG_FILE))?;
     let conf: Config =
-        toml::from_str(&conf_contents).context("Error parsing config.yml")?;
+        toml::from_str(&conf_contents).context(format!("Error parsing {}", CONFIG_FILE))?;
     Ok(conf)
 }
 

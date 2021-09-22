@@ -1,10 +1,10 @@
 use crate::config::Config;
-use crate::cookies;
+use crate::cookies::Auth;
 
 use anyhow::Result;
 
 pub async fn download(config: &Config) -> Result<()> {
-    let cookies = cookies::get_daum_cookies(&config.cookies_file).await?;
+    let cookies = Auth::new()?.get_cookies(&config.cookies_file).await?;
     downloader::download(&config, cookies).await?;
 
     Ok(())

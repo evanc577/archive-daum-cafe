@@ -13,14 +13,16 @@ async fn main() {
     match run().await {
         Ok(_) => process::exit(0),
         Err(err) => {
-            eprintln!("{}", err);
+            for cause in err.chain() {
+                eprintln!("{}", cause);
+            }
             process::exit(1);
         }
     }
 }
 
 async fn run() -> Result<()> {
-    let config = config::read_config().unwrap();
+    let config = config::read_config()?;
     download(&config).await?;
     Ok(())
 }
