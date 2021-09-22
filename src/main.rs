@@ -1,11 +1,11 @@
-use crate::downloader::download;
+use crate::downloader::Downloader;
 
 use anyhow::Result;
 use std::process;
 
 mod config;
-mod downloader;
 mod cookies;
+mod downloader;
 mod error;
 
 #[tokio::main]
@@ -23,6 +23,6 @@ async fn main() {
 
 async fn run() -> Result<()> {
     let config = config::read_config()?;
-    download(&config).await?;
+    Downloader::download(&config).await?;
     Ok(())
 }

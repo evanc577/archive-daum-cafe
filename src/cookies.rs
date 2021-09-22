@@ -10,28 +10,26 @@ pub struct Auth {
 }
 
 impl Auth {
-    pub fn new() -> Result<Self> {
-        Ok(Auth {
+    pub async fn get_cookies(cookies_file: &str) -> Result<String> {
+        println!("Authenticating...");
+
+        let auth = Auth {
             // Force native TLS because logins.daum.net doesn't support forward secrecy ciphers,
             // which rustls requires
             client: reqwest::Client::builder()
                 .use_native_tls()
                 .build()
                 .context("Error building authentication client")?,
-        })
-    }
+        };
 
-    pub async fn get_cookies(&self, cookies_file: &str) -> Result<String> {
-        println!("Authenticating...");
-
-        let kakao_cookies = self
+        let kakao_cookies = auth
             .read_cookies_file(cookies_file)
             .context(format!("Error reading {}", cookies_file))?;
-        let sso_token = self
+        let sso_token = auth
             .get_sso_token(kakao_cookies.as_str())
             .await
             .context("Error getting SSO token")?;
-        let daum_cookies = self
+        let daum_cookies = auth
             .get_daum_cookies(sso_token.as_str())
             .await
             .context("Error getting Daum cookies")?;
