@@ -4,7 +4,7 @@ use crate::cookies;
 use anyhow::Result;
 
 pub async fn download(config: &Config) -> Result<()> {
-    let cookies = cookies::read_cookies(&config.cookies_file).unwrap();
+    let cookies = cookies::get_daum_cookies(&config.cookies_file).await?;
     downloader::download(&config, cookies).await?;
 
     Ok(())
