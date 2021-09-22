@@ -106,6 +106,8 @@ mod downloader {
             cafe_board: &str,
             cafe: &CafeConfig,
         ) -> Result<()> {
+            println!("Checking cafe: {} board: {}", cafe_name, cafe_board);
+
             // Generate download path
             let download_path = if let Some(p) = &cafe.download_path {
                 Path::new(p)

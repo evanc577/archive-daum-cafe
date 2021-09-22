@@ -6,6 +6,7 @@ use regex::Regex;
 use std::fs;
 
 pub async fn get_daum_cookies(cookies_file: &str) -> Result<String> {
+    println!("Authenticating...");
     let kakao_cookies = read_cookies_file(cookies_file)?;
     let sso_token = get_sso_token(kakao_cookies.as_str()).await?;
 
@@ -27,6 +28,7 @@ pub async fn get_daum_cookies(cookies_file: &str) -> Result<String> {
         .collect::<Vec<_>>()
         .join("; ");
 
+    println!("Authentication done");
     Ok(cookies)
 }
 
