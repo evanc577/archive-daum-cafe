@@ -24,10 +24,9 @@ fn default_num_processes() -> usize {
 }
 
 pub fn read_config() -> Result<Config> {
-    let conf_contents = fs::read_to_string(CONFIG_FILE)
-        .context(format!("Error reading {}", CONFIG_FILE))?;
+    let conf_contents =
+        fs::read_to_string(CONFIG_FILE).context(format!("Error reading {}", CONFIG_FILE))?;
     let conf: Config =
         toml::from_str(&conf_contents).context(format!("Error parsing {}", CONFIG_FILE))?;
     Ok(conf)
 }
-

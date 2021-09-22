@@ -1,6 +1,6 @@
 use crate::error::DownloaderError::AuthenticationError;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
@@ -14,15 +14,28 @@ impl Auth {
         Ok(Auth {
             // Force native TLS because logins.daum.net doesn't support forward secrecy ciphers,
             // which rustls requires
-            client: reqwest::Client::builder().use_native_tls().build()?,
+            client: reqwest::Client::builder()
+                .use_native_tls()
+                .build()
+                .context("Error building authentication client")?,
         })
     }
 
     pub async fn get_cookies(&self, cookies_file: &str) -> Result<String> {
         println!("Authenticating...");
-        let kakao_cookies = self.read_cookies_file(cookies_file)?;
-        let sso_token = self.get_sso_token(kakao_cookies.as_str()).await?;
-        let daum_cookies = self.get_daum_cookies(sso_token.as_str()).await?;
+
+        let kakao_cookies = self
+            .read_cookies_file(cookies_file)
+            .context(format!("Error reading {}", cookies_file))?;
+        let sso_token = self
+            .get_sso_token(kakao_cookies.as_str())
+            .await
+            .context("Error getting SSO token")?;
+        let daum_cookies = self
+            .get_daum_cookies(sso_token.as_str())
+            .await
+            .context("Error getting Daum cookies")?;
+
         println!("Authentication done");
         Ok(daum_cookies)
     }
