@@ -66,10 +66,10 @@ struct CafeFile {
 impl<'a> Downloader<'a> {
     pub async fn download(config: &Config) -> Result<()> {
         let cookies = Auth::get_cookies(&config.cookies_file).await?;
-        let downloader = Downloader::new(&config, cookies);
+        let downloader = Downloader::new(config, cookies);
 
         for cafe in &downloader.config.cafe {
-            downloader.download_cafe(cafe.0.as_str(), &cafe.1).await?;
+            downloader.download_cafe(cafe.0.as_str(), cafe.1).await?;
         }
 
         Ok(())
@@ -138,10 +138,10 @@ impl<'a> Downloader<'a> {
             if let Some(exception) = &resp.exception {
                 match exception.as_ref() {
                     "MCAFE_NOT_AUTHENTICATED" => {
-                        return Err(DownloaderError::NotAuthenticatedException)?
+                        return Err(DownloaderError::NotAuthorized.into());
                     }
                     "MCAFE_BBS_BULLETIN_READ_DELALREADY" => continue,
-                    err => return Err(DownloaderError::APIException(err.into()))?,
+                    err => return Err(DownloaderError::APIException(err.into()).into()),
                 }
             }
 
@@ -218,7 +218,7 @@ impl<'a> Downloader<'a> {
                 false => None,
             })
             .max()
-            .ok_or(DownloaderError::APILatestArticleException)?;
+            .ok_or(DownloaderError::APILatestArticle)?;
 
         Ok(latest_id)
     }
