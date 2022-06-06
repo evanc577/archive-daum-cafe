@@ -8,6 +8,7 @@ pub enum DownloaderError {
     APIException(String),
     APILatestArticle,
     APINameMissing,
+    APIUsernameMissing,
     APIDateMissing,
 }
 
@@ -19,6 +20,7 @@ impl fmt::Display for DownloaderError {
             Self::APIException(s) => write!(f, "Daum API Error: {}", s),
             Self::APILatestArticle => write!(f, "Could not get latest post"),
             Self::APINameMissing => write!(f, "Missing field 'plainTextOfName'"),
+            Self::APIUsernameMissing => write!(f, "Missing field 'username'"),
             Self::APIDateMissing => write!(f, "Missing field 'regDttm'"),
         }
     }

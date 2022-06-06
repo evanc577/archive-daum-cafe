@@ -42,6 +42,7 @@ struct CafeApiResponse {
     content: Option<String>,
     #[serde(rename = "exceptionCode")]
     exception: Option<String>,
+    username: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -128,7 +129,7 @@ impl<'a> Downloader<'a> {
             let api_url = format!("http://api.m.cafe.daum.net/mcafe/api/v1/hybrid/{}/{}/{}?ref=&isSimple=false&installedVersion=3.15.1", &cafe_name, &cafe_board, id);
             let resp = self
                 .client_auth
-                .get(api_url)
+                .get(&api_url)
                 .send()
                 .await?
                 .json::<CafeApiResponse>()
@@ -156,12 +157,18 @@ impl<'a> Downloader<'a> {
                 .as_ref()
                 .ok_or(DownloaderError::APINameMissing)?
                 .as_str();
+            let username = resp
+                .username
+                .as_ref()
+                .ok_or(DownloaderError::APIUsernameMissing)?
+                .as_str();
             let prefix = sanitize_filename::sanitize(format!(
-                "{}_{}_{}_{:04}_{}",
+                "{}-{}-{}-{:04}-{}-{}",
                 &date[..8],
                 cafe_name,
                 cafe_board,
                 id,
+                username,
                 Downloader::truncate_str_to_length(name, 100),
             ));
 
@@ -187,7 +194,7 @@ impl<'a> Downloader<'a> {
                         .path()
                         .file_name()?
                         .to_string_lossy()
-                        .split('_')
+                        .split('-')
                         .nth(3)?
                         .parse::<usize>()
                         .ok()
@@ -247,6 +254,10 @@ impl<'a> Downloader<'a> {
     ) -> Result<()> {
         use futures::stream::StreamExt;
         use tempfile::tempdir;
+
+        if path.as_ref().exists() {
+            return Ok(());
+        }
 
         println!("Downloading {}", &prefix.as_ref().to_string_lossy());
 
